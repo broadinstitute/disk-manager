@@ -58,7 +58,7 @@ func main() {
 		}
 		_, err := c.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
-			log.Printf("Error getting disk: %s, %v\n", disk, err)
+			log.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
 		}
 		log.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
 	}
