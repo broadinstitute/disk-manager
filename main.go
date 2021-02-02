@@ -1,28 +1,16 @@
 package main
 
 import (
+	"fmt"
+	"log"
+
 	"github.com/broadinstitute/terra-disk-manager/client"
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/compute/v1"
-	"k8s.io/client-go/kubernetes"
-
-	//    "context"
-
-	"fmt"
-	"log"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	//
-	// Uncomment to load all auth plugins
-	// _ "k8s.io/client-go/plugin/pkg/client/auth"
-	//
-	// Or uncomment to load specific auth plugins
-	// _ "k8s.io/client-go/plugin/pkg/client/auth/azure"
+	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
-	// _ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
-	// _ "k8s.io/client-go/plugin/pkg/client/auth/openstack"
 )
 
 func main() {
