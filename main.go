@@ -33,11 +33,12 @@ func main() {
 
 	// TODO - pagination needed?
 	disks, err := getDisks(k8s)
+	fmt.Println(disks)
+
 	if err != nil {
 		log.Fatalf("Error retrieving persistent disks: %v\n", err)
 	}
 
-	fmt.Println(disks)
 	// GCP poc starts here
 	gcp, err := compute.New(http.DefaultClient)
 	if err != nil {
@@ -63,7 +64,7 @@ func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 
 	for _, pvc := range pvcs.Items {
 		if policy, ok := pvc.Annotations["bio.terra/snapshot-policy"]; ok {
-			fmt.Printf(
+			log.Printf(
 				"pvc name: %s\nsnapshot policy: %s\nvolume name: %s\n",
 				pvc.Name,
 				policy,
@@ -76,7 +77,7 @@ func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 				return nil, fmt.Errorf("Error retrieving persistent volume: %s, %v", pvc.Spec.VolumeName, err)
 			}
 			diskName := pv.Spec.GCEPersistentDisk.PDName
-			fmt.Printf("GCP disk name: %s\n", diskName)
+			log.Printf("GCP disk name: %s\n\n", diskName)
 			disks = append(disks, diskName)
 		}
 	}
