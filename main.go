@@ -71,7 +71,7 @@ func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 				pvc.Spec.VolumeName,
 			)
 
-			// retrive associated persistent volume
+			// retrive associated persistent volume for each claim
 			pv, err := k8s.CoreV1().PersistentVolumes().Get(pvc.Spec.VolumeName, metav1.GetOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("Error retrieving persistent volume: %s, %v", pvc.Spec.VolumeName, err)
