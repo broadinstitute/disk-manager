@@ -2,6 +2,8 @@ package main
 
 import (
 	"github.com/broadinstitute/terra-disk-manager/client"
+	"k8s.io/client-go/kubernetes"
+
 	//    "context"
 
 	"fmt"
@@ -10,7 +12,6 @@ import (
 
 	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 
 	//
 	// Uncomment to load all auth plugins
@@ -24,43 +25,19 @@ import (
 )
 
 func main() {
-	// Kubernets POC starts here
-
 	// create the k8s client (technically a "clientset")
 	k8s, err := client.Build()
 	if err != nil {
-		log.Fatalf("Error building k8s client: %v, exiting", err)
-	}
-
-	pvcs, err := k8s.CoreV1().PersistentVolumeClaims("").List(metav1.ListOptions{})
-
-	if err != nil {
-		panic(err.Error())
+		log.Fatalf("Error building k8s client: %v, exiting\n", err)
 	}
 
 	// TODO - pagination needed?
-	for _, pvc := range pvcs.Items {
-		if policy, ok := pvc.Annotations["bio.terra/snapshot-policy"]; ok {
-			fmt.Printf("pvc name: %s\n", pvc.Name)
-			fmt.Printf("snapshot policy: %s\n", policy)
-			fmt.Printf("volume name: %s\n", pvc.Spec.VolumeName)
-
-			selector := fields.OneTermEqualSelector("metadata.name", pvc.Spec.VolumeName)
-			listOptions := metav1.ListOptions{FieldSelector: selector.String()}
-			pvs, err := k8s.CoreV1().PersistentVolumes().List(listOptions)
-			if err != nil {
-				panic(err.Error())
-			}
-			if len(pvs.Items) != 1 {
-				log.Panicf("Exactly one PV should match query, got %d", len(pvs.Items))
-			}
-			pd := pvs.Items[0]
-			gcpDiskName := pd.Spec.GCEPersistentDisk.PDName
-			fmt.Printf("gcp disk name: %s\n", gcpDiskName)
-			fmt.Println()
-		}
+	disks, err := getDisks(k8s)
+	if err != nil {
+		log.Fatalf("Error retrieving persistent disks: %v\n", err)
 	}
 
+	fmt.Println(disks)
 	// GCP poc starts here
 	gcp, err := compute.New(http.DefaultClient)
 	if err != nil {
@@ -73,4 +50,35 @@ func main() {
 	}
 	r2 := *result
 	fmt.Printf("%d\n", len(r2.Items))
+}
+
+func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
+	var disks []string
+
+	// get persistent volume claims
+	pvcs, err := k8s.CoreV1().PersistentVolumeClaims("").List(metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("Error retrieving persistent volume claims: %v", err)
+	}
+
+	for _, pvc := range pvcs.Items {
+		if policy, ok := pvc.Annotations["bio.terra/snapshot-policy"]; ok {
+			fmt.Printf(
+				"pvc name: %s\nsnapshot policy: %s\nvolume name: %s\n",
+				pvc.Name,
+				policy,
+				pvc.Spec.VolumeName,
+			)
+
+			// retrive associated persistent volume
+			pv, err := k8s.CoreV1().PersistentVolumes().Get(pvc.Spec.VolumeName, metav1.GetOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("Error retrieving persistent volume: %s, %v", pvc.Spec.VolumeName, err)
+			}
+			diskName := pv.Spec.GCEPersistentDisk.PDName
+			fmt.Printf("GCP disk name: %s\n", diskName)
+			disks = append(disks, diskName)
+		}
+	}
+	return disks, nil
 }
