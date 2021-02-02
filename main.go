@@ -33,11 +33,11 @@ func main() {
 
 	// TODO - pagination needed?
 	disks, err := getDisks(k8s)
-	fmt.Println(disks)
-
 	if err != nil {
 		log.Fatalf("Error retrieving persistent disks: %v\n", err)
 	}
+
+	fmt.Println(disks)
 
 	// GCP poc starts here
 	gcp, err := compute.New(http.DefaultClient)
