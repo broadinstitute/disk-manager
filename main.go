@@ -46,7 +46,7 @@ func main() {
 		log.Fatalf("Error creating GCP client: %v\n", err)
 	}
 
-	compute, err := compute.New(gcpClient)
+	c, err := compute.New(gcpClient)
 	if err != nil {
 		log.Fatalf("Error creating compute API client: %v\n", err)
 	}
@@ -54,9 +54,13 @@ func main() {
 	// hardcoded params for compute api query
 	project := "broad-dsde-dev"
 	zone := "us-central1-a"
+	policyName := "terra-snapshot-policy"
 
 	for _, disk := range disks {
-		resp, err := compute.Disks.Get(project, zone, disk).Context(ctx).Do()
+		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
+			ResourcePolicies: []string{policyName},
+		}
+		resp, err := c.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
 			log.Printf("Error getting disk: %s, %v\n", disk, err)
 		}
