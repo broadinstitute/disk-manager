@@ -54,17 +54,25 @@ func main() {
 	// hardcoded params for compute api query
 	project := "broad-dsde-dev"
 	zone := "us-central1-a"
+	region := "us-central1"
 	policyName := "terra-snapshot-policy"
+
+	//get url for snapshot policy
+	policy, err := c.ResourcePolicies.Get(project, region, policyName).Context(ctx).Do()
+	if err != nil {
+		log.Fatalf("Error retrieving snapshot policy: %v", err)
+	}
+	policyURL := policy.SelfLink
 
 	for _, disk := range disks {
 		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
-			ResourcePolicies: []string{policyName},
+			ResourcePolicies: []string{policyURL},
 		}
-		resp, err := c.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
+		_, err := c.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
 			log.Printf("Error getting disk: %s, %v\n", disk, err)
 		}
-		fmt.Printf("%#v\n", resp)
+		log.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
 	}
 
 }
