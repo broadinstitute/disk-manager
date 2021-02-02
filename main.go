@@ -2,15 +2,16 @@ package main
 
 import (
 	"github.com/broadinstitute/terra-disk-manager/client"
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/compute/v1"
 	"k8s.io/client-go/kubernetes"
 
 	//    "context"
 
 	"fmt"
 	"log"
-	"net/http"
 
-	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	//
@@ -37,22 +38,32 @@ func main() {
 		log.Fatalf("Error retrieving persistent disks: %v\n", err)
 	}
 
-	fmt.Println(disks)
-
 	// GCP poc starts here
-	gcp, err := compute.New(http.DefaultClient)
+	ctx := context.Background()
+
+	gcpClient, err := google.DefaultClient(ctx, compute.CloudPlatformScope)
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("Error creating GCP client: %v\n", err)
 	}
 
-	result, err := gcp.Disks.List("broad-dsde-dev", "us-central1-a").Do()
+	compute, err := compute.New(gcpClient)
 	if err != nil {
-		panic(err.Error())
+		log.Fatalf("Error creating compute API client: %v\n", err)
 	}
-	r2 := *result
-	fmt.Printf("%d\n", len(r2.Items))
+
+	// hardcoded params for compute api query
+	project := "broad-dsde-dev"
+	zone := "us-central1-a"
+
+	for _, disk := range disks {
+		resp, err := compute.Disks.Get(project, zone, disk).Context(ctx).Do()
+		if err != nil {
+			log.Printf("Error getting disk: %s, %v\n", disk, err)
+		}
+		fmt.Printf("%#v\n", resp)
+	}
+
 }
-
 func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 	var disks []string
 
