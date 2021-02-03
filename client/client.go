@@ -50,8 +50,8 @@ func Build() (*Clients, error) {
 		return nil, fmt.Errorf("Error building GCP client: %v", err)
 	}
 	return &Clients{
-		gcp: gcp,
-		k8s: k8s,
+		gcp,
+		k8s,
 	}, nil
 }
 
