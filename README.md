@@ -29,3 +29,6 @@ cronjob to attach snapshot schedules to persistent disks created by k8s stateful
   * Deploy the cronjob
     * Make sure we know if starts failing! Mike: Prometheus does this already! :awesome: :awesome: :awesome:
 
+## Application TODOs
+* Monitor status of attach resource policy operation resp is an operation id which can be queried to determine if operation succeeds or fails
+* Parameterize  all the currently hardcoded values. (GCP project/zone/policy name...etc) and gcp and k8s authentication
