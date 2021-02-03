@@ -18,7 +18,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error building k8s client: %v, exiting\n", err)
 	}
-	k8s := clients.K8s
+	k8s := clients.GetK8s()
 
 	// TODO - pagination needed?
 	disks, err := getDisks(k8s)
@@ -30,7 +30,7 @@ func main() {
 
 	ctx := context.Background()
 
-	gcp := clients.GCP
+	gcp := clients.GetGCP()
 
 	// hardcoded params for compute api query
 	project := "broad-dsde-dev"
