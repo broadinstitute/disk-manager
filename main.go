@@ -38,7 +38,7 @@ func main() {
 	if err := addPolicy(ctx, gcp, disks); err != nil {
 		log.Fatalf("Error adding snapshot policy to disks: %v\n", err)
 	}
-
+	log.Println("[info] Finished updating disks, exiting...")
 }
 func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 	var disks []string
@@ -83,7 +83,7 @@ func addPolicy(ctx context.Context, gcp *compute.Service, disks []string) error 
 			log.Printf("[info] unable to determine if disk %s has pre-existing resource policy, attempting to add %s", disk, policyName)
 		}
 		if hasPolicy {
-			log.Printf("[info] disk: %s already has snapshot policy...skipping", disk)
+			log.Printf("[info] disk: %s already has snapshot policy... skipping", disk)
 			continue
 		}
 		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
