@@ -14,6 +14,7 @@ import (
 
 func main() {
 	// create the k8s client (technically a "clientset")
+	log.Println("[info] Building clients...")
 	clients, err := client.Build()
 	if err != nil {
 		log.Fatalf("Error building clients: %v, exiting\n", err)
@@ -21,6 +22,7 @@ func main() {
 	k8s := clients.GetK8s()
 
 	// TODO - pagination needed?
+	log.Println("[info] Searching for persistent disks...")
 	disks, err := getDisks(k8s)
 	if err != nil {
 		log.Fatalf("Error retrieving persistent disks: %v\n", err)
@@ -32,6 +34,7 @@ func main() {
 
 	gcp := clients.GetGCP()
 
+	log.Println("[info] Adding snapshot policy to disks...")
 	if err := addPolicy(ctx, gcp, disks); err != nil {
 		log.Fatalf("Error adding snapshot policy to disks: %v\n", err)
 	}
@@ -45,23 +48,15 @@ func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Error retrieving persistent volume claims: %v", err)
 	}
-
 	for _, pvc := range pvcs.Items {
-		if policy, ok := pvc.Annotations["bio.terra/snapshot-policy"]; ok {
-			log.Printf(
-				"pvc name: %s\nsnapshot policy: %s\nvolume name: %s\n",
-				pvc.Name,
-				policy,
-				pvc.Spec.VolumeName,
-			)
-
+		if _, ok := pvc.Annotations["bio.terra/snapshot-policy"]; ok {
 			// retrive associated persistent volume for each claim
 			pv, err := k8s.CoreV1().PersistentVolumes().Get(pvc.Spec.VolumeName, metav1.GetOptions{})
 			if err != nil {
 				return nil, fmt.Errorf("Error retrieving persistent volume: %s, %v", pvc.Spec.VolumeName, err)
 			}
 			diskName := pv.Spec.GCEPersistentDisk.PDName
-			log.Printf("GCP disk name: %s\n\n", diskName)
+			log.Printf("[info] found PersistentVolume: %q with disk: %q", pvc.GetName(), diskName)
 			disks = append(disks, diskName)
 		}
 	}
@@ -82,14 +77,34 @@ func addPolicy(ctx context.Context, gcp *compute.Service, disks []string) error 
 	policyURL := policy.SelfLink
 
 	for _, disk := range disks {
+		// check to make sure disk doesn't already have a snapshot policy
+		hasPolicy, err := hasSnapshotPolicy(ctx, gcp, disk, project, zone)
+		if err != nil {
+			log.Printf("[info] unable to determine if disk %s has pre-existing resource policy, attempting to add %s", disk, policyName)
+		}
+		if hasPolicy {
+			log.Printf("[info] disk: %s already has snapshot policy...skipping", disk)
+			continue
+		}
 		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 			ResourcePolicies: []string{policyURL},
 		}
-		_, err := gcp.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
+		_, err = gcp.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
 			log.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
 		}
 		log.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
 	}
 	return nil
+}
+
+func hasSnapshotPolicy(ctx context.Context, gcp *compute.Service, disk, project, zone string) (bool, error) {
+	resp, err := gcp.Disks.Get(project, zone, disk).Context(ctx).Do()
+	if err != nil {
+		return false, fmt.Errorf("Error determinding if disk %s has pre-existing resource policy: %v", disk, err)
+	}
+	if len(resp.ResourcePolicies) > 0 {
+		return true, nil
+	}
+	return false, nil
 }
