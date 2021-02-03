@@ -6,7 +6,6 @@ import (
 
 	"github.com/broadinstitute/terra-disk-manager/client"
 	"golang.org/x/net/context"
-	"golang.org/x/oauth2/google"
 	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -15,10 +14,11 @@ import (
 
 func main() {
 	// create the k8s client (technically a "clientset")
-	k8s, err := client.Build()
+	clients, err := client.Build()
 	if err != nil {
 		log.Fatalf("Error building k8s client: %v, exiting\n", err)
 	}
+	k8s := clients.K8s
 
 	// TODO - pagination needed?
 	disks, err := getDisks(k8s)
@@ -27,17 +27,10 @@ func main() {
 	}
 
 	// GCP poc starts here
+
 	ctx := context.Background()
 
-	gcpClient, err := google.DefaultClient(ctx, compute.CloudPlatformScope)
-	if err != nil {
-		log.Fatalf("Error creating GCP client: %v\n", err)
-	}
-
-	c, err := compute.New(gcpClient)
-	if err != nil {
-		log.Fatalf("Error creating compute API client: %v\n", err)
-	}
+	gcp := clients.GCP
 
 	// hardcoded params for compute api query
 	project := "broad-dsde-dev"
@@ -46,7 +39,7 @@ func main() {
 	policyName := "terra-snapshot-policy"
 
 	//get url for snapshot policy
-	policy, err := c.ResourcePolicies.Get(project, region, policyName).Context(ctx).Do()
+	policy, err := gcp.ResourcePolicies.Get(project, region, policyName).Context(ctx).Do()
 	if err != nil {
 		log.Fatalf("Error retrieving snapshot policy: %v", err)
 	}
@@ -56,7 +49,7 @@ func main() {
 		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 			ResourcePolicies: []string{policyURL},
 		}
-		_, err := c.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
+		_, err := gcp.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
 			log.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
 		}
