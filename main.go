@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/broadinstitute/terra-disk-manager/client"
+	"github.com/broadinstitute/disk-manager/client"
 	"golang.org/x/net/context"
 	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

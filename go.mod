@@ -1,4 +1,4 @@
-module github.com/broadinstitute/terra-disk-manager
+module github.com/broadinstitute/disk-manager
 
 go 1.15
 

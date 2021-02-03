@@ -7,8 +7,8 @@ ENV CGO_ENABLED=0
 ENV GO111MODULE=on
 ENV GOBIN=/bin
 COPY . .
-RUN go build -o /bin/terra-disk-manager .
+RUN go build -o /bin/disk-manager .
 
 FROM alpine:${ALPINE_VERSION} as runtime
-COPY --from=build /bin/terra-disk-manager /bin/terra-disk-manager
-ENTRYPOINT [ "/bin/terra-disk-manager" ] 
+COPY --from=build /bin/disk-manager /bin/disk-manager
+ENTRYPOINT [ "/bin/disk-manager" ]
