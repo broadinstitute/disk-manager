@@ -16,7 +16,7 @@ func main() {
 	// create the k8s client (technically a "clientset")
 	clients, err := client.Build()
 	if err != nil {
-		log.Fatalf("Error building k8s client: %v, exiting\n", err)
+		log.Fatalf("Error building clients: %v, exiting\n", err)
 	}
 	k8s := clients.GetK8s()
 
@@ -32,28 +32,8 @@ func main() {
 
 	gcp := clients.GetGCP()
 
-	// hardcoded params for compute api query
-	project := "broad-dsde-dev"
-	zone := "us-central1-a"
-	region := "us-central1"
-	policyName := "terra-snapshot-policy"
-
-	//get url for snapshot policy
-	policy, err := gcp.ResourcePolicies.Get(project, region, policyName).Context(ctx).Do()
-	if err != nil {
-		log.Fatalf("Error retrieving snapshot policy: %v", err)
-	}
-	policyURL := policy.SelfLink
-
-	for _, disk := range disks {
-		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
-			ResourcePolicies: []string{policyURL},
-		}
-		_, err := gcp.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
-		if err != nil {
-			log.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
-		}
-		log.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
+	if err := addPolicy(ctx, gcp, disks); err != nil {
+		log.Fatalf("Error adding snapshot policy to disks: %v\n", err)
 	}
 
 }
@@ -86,4 +66,30 @@ func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 		}
 	}
 	return disks, nil
+}
+
+func addPolicy(ctx context.Context, gcp *compute.Service, disks []string) error {
+	// hardcoded params for compute api query
+	project := "broad-dsde-dev"
+	zone := "us-central1-a"
+	region := "us-central1"
+	policyName := "terra-snapshot-policy"
+
+	policy, err := gcp.ResourcePolicies.Get(project, region, policyName).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("Error retrieving snapshot polict: %v", err)
+	}
+	policyURL := policy.SelfLink
+
+	for _, disk := range disks {
+		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
+			ResourcePolicies: []string{policyURL},
+		}
+		_, err := gcp.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
+		if err != nil {
+			log.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
+		}
+		log.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
+	}
+	return nil
 }
