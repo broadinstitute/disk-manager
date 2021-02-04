@@ -73,7 +73,6 @@ func buildKubeClient(config *restclient.Config) (*kubernetes.Clientset, error) {
 
 func buildGCPClient() (*compute.Service, error) {
 	ctx := context.Background()
-
 	gcpClient, err := google.DefaultClient(ctx, compute.CloudPlatformScope)
 	if err != nil {
 		return nil, fmt.Errorf("error authenticating to GCP: %v", err)
