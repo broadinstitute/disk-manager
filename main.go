@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/broadinstitute/disk-manager/client"
+	"github.com/broadinstitute/disk-manager/logs"
 	"golang.org/x/net/context"
 	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,18 +14,19 @@ import (
 
 func main() {
 	// create the k8s client (technically a "clientset")
-	log.Println("[info] Building clients...")
+	// log.Println("Building clients...")
+	logs.Info.Printf("Building clients...")
 	clients, err := client.Build()
 	if err != nil {
-		log.Fatalf("Error building clients: %v, exiting\n", err)
+		logs.Error.Fatalf("Error building clients: %v, exiting\n", err)
 	}
 	k8s := clients.GetK8s()
 
 	// TODO - pagination needed?
-	log.Println("[info] Searching for persistent disks...")
+	logs.Info.Println("Searching for persistent disks...")
 	disks, err := getDisks(k8s)
 	if err != nil {
-		log.Fatalf("Error retrieving persistent disks: %v\n", err)
+		logs.Error.Fatalf("Error retrieving persistent disks: %v\n", err)
 	}
 
 	// GCP poc starts here
@@ -34,11 +35,11 @@ func main() {
 
 	gcp := clients.GetGCP()
 
-	log.Println("[info] Adding snapshot policy to disks...")
+	logs.Info.Println("Adding snapshot policy to disks...")
 	if err := addPolicy(ctx, gcp, disks); err != nil {
-		log.Fatalf("Error adding snapshot policy to disks: %v\n", err)
+		logs.Error.Fatalf("Error adding snapshot policy to disks: %v\n", err)
 	}
-	log.Println("[info] Finished updating disks, exiting...")
+	logs.Info.Println("Finished updating disks, exiting...")
 }
 func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 	var disks []string
@@ -56,7 +57,7 @@ func getDisks(k8s *kubernetes.Clientset) ([]string, error) {
 				return nil, fmt.Errorf("Error retrieving persistent volume: %s, %v", pvc.Spec.VolumeName, err)
 			}
 			diskName := pv.Spec.GCEPersistentDisk.PDName
-			log.Printf("[info] found PersistentVolume: %q with disk: %q", pvc.GetName(), diskName)
+			logs.Info.Printf("found PersistentVolume: %q with disk: %q", pvc.GetName(), diskName)
 			disks = append(disks, diskName)
 		}
 	}
@@ -80,10 +81,10 @@ func addPolicy(ctx context.Context, gcp *compute.Service, disks []string) error 
 		// check to make sure disk doesn't already have a snapshot policy
 		hasPolicy, err := hasSnapshotPolicy(ctx, gcp, disk, project, zone)
 		if err != nil {
-			log.Printf("[info] unable to determine if disk %s has pre-existing resource policy, attempting to add %s", disk, policyName)
+			logs.Warn.Printf("unable to determine if disk %s has pre-existing resource policy, attempting to add %s", disk, policyName)
 		}
 		if hasPolicy {
-			log.Printf("[info] disk: %s already has snapshot policy... skipping", disk)
+			logs.Info.Printf("disk: %s already has snapshot policy... skipping", disk)
 			continue
 		}
 		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
@@ -91,9 +92,9 @@ func addPolicy(ctx context.Context, gcp *compute.Service, disks []string) error 
 		}
 		_, err = gcp.Disks.AddResourcePolicies(project, zone, disk, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
-			log.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
+			logs.Error.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
 		}
-		log.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
+		logs.Info.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
 	}
 	return nil
 }
