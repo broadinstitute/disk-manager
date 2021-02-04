@@ -1,9 +1,7 @@
 package client
 
 import (
-	"flag"
 	"fmt"
-	"path/filepath"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2/google"
@@ -11,7 +9,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 )
 
 // Build will return a k8s client using local kubectl
@@ -35,8 +32,8 @@ func (c *Clients) GetK8s() *kubernetes.Clientset {
 
 // Build creates the GCP and k8s clients used by this tool
 // and returns both packaged in a single struct
-func Build() (*Clients, error) {
-	conf, err := buildKubeConfig()
+func Build(local bool, kubeconfig *string) (*Clients, error) {
+	conf, err := buildKubeConfig(local, kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("Error building kube client: %v", err)
 	}
@@ -55,19 +52,17 @@ func Build() (*Clients, error) {
 	}, nil
 }
 
-func buildKubeConfig() (*restclient.Config, error) {
-	var kubeconfig *string
-
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to kubectl config")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to kubeconfig file")
+func buildKubeConfig(local bool, kubeconfig *string) (*restclient.Config, error) {
+	if local {
+		config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("Error building local k8s config: %v", err)
+		}
+		return config, nil
 	}
-	flag.Parse()
-
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	config, err := restclient.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("Error building k8s config: %v", err)
+		return nil, fmt.Errorf("Error building in cluster k8s config: %v", err)
 	}
 	return config, nil
 }

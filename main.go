@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"path/filepath"
 
 	"github.com/broadinstitute/disk-manager/client"
 	"github.com/broadinstitute/disk-manager/logs"
@@ -10,13 +12,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"k8s.io/client-go/util/homedir"
 )
 
 func main() {
 	// create the k8s client (technically a "clientset")
 	// log.Println("Building clients...")
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to kubectl config")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to kubeconfig file")
+	}
+	local := flag.Bool("local", false, "use this flag when running locally (outside of cluster to use local kube config")
+	flag.Parse()
+
 	logs.Info.Printf("Building clients...")
-	clients, err := client.Build()
+	clients, err := client.Build(*local, kubeconfig)
 	if err != nil {
 		logs.Error.Fatalf("Error building clients: %v, exiting\n", err)
 	}
