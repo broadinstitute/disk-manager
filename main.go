@@ -16,19 +16,10 @@ import (
 )
 
 func main() {
-	// create the k8s client (technically a "clientset")
-	// log.Println("Building clients...")
-	var kubeconfig *string
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to kubectl config")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to kubeconfig file")
-	}
-	local := flag.Bool("local", false, "use this flag when running locally (outside of cluster to use local kube config")
-	flag.Parse()
+	a := parseArgs()
 
 	logs.Info.Printf("Building clients...")
-	clients, err := client.Build(*local, kubeconfig)
+	clients, err := client.Build(a.local, a.kubeconfig)
 	if err != nil {
 		logs.Error.Fatalf("Error building clients: %v, exiting\n", err)
 	}
@@ -120,4 +111,21 @@ func hasSnapshotPolicy(ctx context.Context, gcp *compute.Service, disk, project,
 		return true, nil
 	}
 	return false, nil
+}
+
+type args struct {
+	local      bool
+	kubeconfig *string
+}
+
+func parseArgs() *args {
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to kubectl config")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to kubeconfig file")
+	}
+	local := flag.Bool("local", false, "use this flag when running locally (outside of cluster to use local kube config")
+	flag.Parse()
+	return &args{*local, kubeconfig}
 }
