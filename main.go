@@ -105,7 +105,7 @@ func addPolicy(ctx context.Context, gcp *compute.Service, disks []string) error 
 func hasSnapshotPolicy(ctx context.Context, gcp *compute.Service, disk, project, zone string) (bool, error) {
 	resp, err := gcp.Disks.Get(project, zone, disk).Context(ctx).Do()
 	if err != nil {
-		return false, fmt.Errorf("Error determinding if disk %s has pre-existing resource policy: %v", disk, err)
+		return false, fmt.Errorf("Error determining if disk %s has pre-existing resource policy: %v", disk, err)
 	}
 	if len(resp.ResourcePolicies) > 0 {
 		return true, nil
