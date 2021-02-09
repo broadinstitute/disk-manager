@@ -47,8 +47,14 @@ func main() {
 	}
 	logs.Info.Println("Finished updating disks, exiting...")
 }
-func getDisks(k8s *kubernetes.Clientset, config *config.Config) ([]string, error) {
-	var disks []string
+
+type diskInfo struct {
+	name   string
+	policy string
+}
+
+func getDisks(k8s *kubernetes.Clientset, config *config.Config) ([]diskInfo, error) {
+	var disks []diskInfo
 
 	// get persistent volume claims
 	pvcs, err := k8s.CoreV1().PersistentVolumeClaims("").List(metav1.ListOptions{})
@@ -56,8 +62,7 @@ func getDisks(k8s *kubernetes.Clientset, config *config.Config) ([]string, error
 		return nil, fmt.Errorf("Error retrieving persistent volume claims: %v", err)
 	}
 	for _, pvc := range pvcs.Items {
-		// Todo: actually assign the policy specified in annotation
-		if _, ok := pvc.Annotations[config.TargetAnnotation]; ok {
+		if policy, ok := pvc.Annotations[config.TargetAnnotation]; ok {
 			// retrive associated persistent volume for each claim
 			pv, err := k8s.CoreV1().PersistentVolumes().Get(pvc.Spec.VolumeName, metav1.GetOptions{})
 			if err != nil {
@@ -65,41 +70,43 @@ func getDisks(k8s *kubernetes.Clientset, config *config.Config) ([]string, error
 			}
 			diskName := pv.Spec.GCEPersistentDisk.PDName
 			logs.Info.Printf("found PersistentVolume: %q with disk: %q", pvc.GetName(), diskName)
-			disks = append(disks, diskName)
+			disk := diskInfo{
+				name:   diskName,
+				policy: policy,
+			}
+			disks = append(disks, disk)
 		}
 	}
 	return disks, nil
 }
 
-func addPolicy(ctx context.Context, gcp *compute.Service, disks []string, config *config.Config) error {
-	// hardcoded params for compute api query
-
-	policyName := "terra-snapshot-policy"
-
-	policy, err := gcp.ResourcePolicies.Get(config.GoogleProject, config.Region, policyName).Context(ctx).Do()
-	if err != nil {
-		return fmt.Errorf("Error retrieving snapshot polict: %v", err)
-	}
-	policyURL := policy.SelfLink
-
+// todo this function is doing too many things, break it up
+func addPolicy(ctx context.Context, gcp *compute.Service, disks []diskInfo, config *config.Config) error {
 	for _, disk := range disks {
-		// check to make sure disk doesn't already have a snapshot policy
-		hasPolicy, err := hasSnapshotPolicy(ctx, gcp, disk, config.GoogleProject, config.Zone)
+		policyName := disk.policy
+		// todo only perform this api call if policyName is different
+		policy, err := gcp.ResourcePolicies.Get(config.GoogleProject, config.Region, policyName).Context(ctx).Do()
 		if err != nil {
-			logs.Warn.Printf("unable to determine if disk %s has pre-existing resource policy, attempting to add %s", disk, policyName)
+			return fmt.Errorf("Error retrieving snapshot policy: %v", err)
+		}
+		policyURL := policy.SelfLink
+		// check to make sure disk doesn't already have a snapshot policy
+		hasPolicy, err := hasSnapshotPolicy(ctx, gcp, disk.name, config.GoogleProject, config.Zone)
+		if err != nil {
+			logs.Warn.Printf("unable to determine if disk %s has pre-existing resource policy, attempting to add %s", disk.name, policyName)
 		}
 		if hasPolicy {
-			logs.Info.Printf("disk: %s already has snapshot policy... skipping", disk)
+			logs.Info.Printf("disk: %s already has snapshot policy: %s ... skipping", disk.name, disk.policy)
 			continue
 		}
 		addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 			ResourcePolicies: []string{policyURL},
 		}
-		_, err = gcp.Disks.AddResourcePolicies(config.GoogleProject, config.Zone, disk, addPolicyRequest).Context(ctx).Do()
+		_, err = gcp.Disks.AddResourcePolicies(config.GoogleProject, config.Zone, disk.name, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
-			logs.Error.Printf("Error adding snapshot policy to disk %s: %v\n", disk, err)
+			logs.Error.Printf("Error adding snapshot policy: %s to disk %s: %v\n", policyName, disk.name, err)
 		}
-		logs.Info.Printf("Added snapshot policy: %s to disk: %s", policyName, disk)
+		logs.Info.Printf("Added snapshot policy: %s to disk: %s", policyName, disk.name)
 	}
 	return nil
 }

@@ -16,3 +16,6 @@
 
 # Goland junk
 .idea
+
+# Config file for local testing
+config.yaml
