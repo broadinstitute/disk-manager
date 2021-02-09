@@ -1,8 +1,3 @@
-// Config must support the following parameters
-// targetAnnotation - the annotation a pvc must have to attach a snapshot policy to the associated disk
-// googleProject - project id hosting cluster and pds
-// zone - gcp zone resources live in
-// region - gcp region resources live in
 package config
 
 import (
