@@ -136,7 +136,7 @@ func parseArgs() *args {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to kubeconfig file")
 	}
 	local := flag.Bool("local", false, "use this flag when running locally (outside of cluster to use local kube config")
-	configFile := flag.String("config-file", "/etc/disk-manger/config.yaml", "path to yaml file with disk-manager config")
+	configFile := flag.String("config-file", "/etc/disk-manager/config.yaml", "path to yaml file with disk-manager config")
 	flag.Parse()
 	return &args{*local, kubeconfig, configFile}
 }

@@ -15,6 +15,7 @@ type Config struct {
 	Region           string `yaml:"region"`
 }
 
+// Read attempts to parse the file at configPath and create build a config struct from it
 func Read(configPath string) (*Config, error) {
 	configBytes, err := ioutil.ReadFile(configPath)
 	if err != nil {
