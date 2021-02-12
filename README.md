@@ -1,4 +1,6 @@
 # terra-disk-manager
+[![Go Report Card](https://goreportcard.com/badge/github.com/broadinstitute/disk-manager)](https://goreportcard.com/report/github.com/broadinstitute/disk-manager)
+
 cronjob to attach snapshot schedules to persistent disks created by k8s stateful sets
 
 
