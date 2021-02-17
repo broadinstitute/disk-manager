@@ -2,7 +2,7 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/broadinstitute/disk-manager)](https://goreportcard.com/report/github.com/broadinstitute/disk-manager)
 
-disk-manager is a tool to manage google compute engine persistent disks which are dynamically provisioned by kubernetes stateful sets. It ensures that
+Disk-manager is a tool to manage google compute engine persistent disks dynamically provisioned by kubernetes stateful sets. It ensures that
 the GCE persistent disks have a snapshot schedule attached so that the disks are backed up regularly. The snapshot scheudle that will be attached is
 determined by an annotation on `persistentVolumeClaims` created as part of stateful kubernetes deployments.
 
