@@ -104,7 +104,7 @@ func addPolicy(ctx context.Context, gcp *compute.Service, disks []diskInfo, conf
 		}
 		_, err = gcp.Disks.AddResourcePolicies(config.GoogleProject, config.Zone, disk.name, addPolicyRequest).Context(ctx).Do()
 		if err != nil {
-			logs.Error.Printf("Error adding snapshot policy: %s to disk %s: %v\n", policyName, disk.name, err)
+			return fmt.Errorf("Error adding snapshot policy %s to disk %s: %v\n", policyName, disk.name, err)
 		}
 		logs.Info.Printf("Added snapshot policy: %s to disk: %s", policyName, disk.name)
 	}
