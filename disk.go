@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"github.com/broadinstitute/disk-manager/client"
 	"github.com/broadinstitute/disk-manager/config"
@@ -14,8 +13,7 @@ import (
 type diskManager struct {
 	config *config.Config     // DiskManager config
 	gcp *compute.Service      // GCP Compute API client
-	ctx context.Context       // context for GCP API client
-	k8s kubernetes.Interface // K8s API client
+	k8s kubernetes.Interface  // K8s API client
 }
 
 type diskInfo struct {
@@ -25,7 +23,7 @@ type diskInfo struct {
 
 /* Construct a new DiskManager */
 func newDiskManager(args *args) (*diskManager, error) {
-	config, err := config.Read(*args.configFile)
+	cfg, err := config.Read(*args.configFile)
 	if err != nil {
 		return nil, fmt.Errorf("Error building config: %v\n", err)
 	}
@@ -37,10 +35,9 @@ func newDiskManager(args *args) (*diskManager, error) {
 	}
 
 	k8s := clients.GetK8s()
-	ctx := context.Background()
 	gcp := clients.GetGCP()
 
-	return &diskManager{config, gcp, ctx, k8s}, nil
+	return &diskManager{cfg, gcp, k8s}, nil
 }
 
 /* Add configured snapshot policies to all disks with the configured annotation */
@@ -69,7 +66,7 @@ func (m diskManager) addPoliciesToDisks() error {
 
 /* Search K8s for PersistentVolumeClaims with the snapshot policy annotation */
 func (m diskManager) getDisks() ([]diskInfo, error) {
-	var disks []diskInfo
+	disks := make([]diskInfo, 0)
 
 	// get persistent volume claims
 	pvcs, err := m.k8s.CoreV1().PersistentVolumeClaims("").List(metav1.ListOptions{})
@@ -161,17 +158,17 @@ func (m diskManager) findDisk(name string) (*compute.Disk, bool, error) {
 
 /* Retrieve a resource policy object via the GCP API */
 func (m diskManager) getPolicy(name string) (*compute.ResourcePolicy, error) {
-	return m.gcp.ResourcePolicies.Get(m.config.GoogleProject, m.config.Region, name).Context(m.ctx).Do()
+	return m.gcp.ResourcePolicies.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
 /* Retrieve a zonal disk object via the GCP API */
 func (m diskManager) getZonalDisk(name string) (*compute.Disk, error) {
-	return m.gcp.Disks.Get(m.config.GoogleProject, m.config.Zone, name).Context(m.ctx).Do()
+	return m.gcp.Disks.Get(m.config.GoogleProject, m.config.Zone, name).Do()
 }
 
 /* Retrieve a regional disk object via the GCP API */
 func (m diskManager) getRegionalDisk(name string) (*compute.Disk, error) {
-	return m.gcp.RegionDisks.Get(m.config.GoogleProject, m.config.Region, name).Context(m.ctx).Do()
+	return m.gcp.RegionDisks.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
 /* Attach a policy to a zonal disk object via the GCP API */
@@ -179,7 +176,7 @@ func (m diskManager) addPolicyToZonalDisk(diskName string, policy *compute.Resou
 	addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
-	_, err := m.gcp.Disks.AddResourcePolicies(m.config.GoogleProject, m.config.Zone, diskName, addPolicyRequest).Context(m.ctx).Do()
+	_, err := m.gcp.Disks.AddResourcePolicies(m.config.GoogleProject, m.config.Zone, diskName, addPolicyRequest).Do()
 	return err
 }
 
@@ -188,6 +185,6 @@ func (m diskManager) addPolicyToRegionalDisk(diskName string, policy *compute.Re
 	addPolicyRequest := &compute.RegionDisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
-	_, err := m.gcp.RegionDisks.AddResourcePolicies(m.config.GoogleProject, m.config.Region, diskName, addPolicyRequest).Context(m.ctx).Do()
+	_, err := m.gcp.RegionDisks.AddResourcePolicies(m.config.GoogleProject, m.config.Region, diskName, addPolicyRequest).Do()
 	return err
 }
