@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"golang.org/x/net/context"
-	"golang.org/x/oauth2/google"
 	"google.golang.org/api/compute/v1"
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
@@ -73,12 +72,8 @@ func buildKubeClient(config *restclient.Config) (*kubernetes.Clientset, error) {
 
 func buildGCPClient() (*compute.Service, error) {
 	ctx := context.Background()
-	gcpClient, err := google.DefaultClient(ctx, compute.CloudPlatformScope)
-	if err != nil {
-		return nil, fmt.Errorf("error authenticating to GCP: %v", err)
-	}
 
-	c, err := compute.New(gcpClient)
+	c, err := compute.NewService(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error creating compute api client: %v", err)
 	}
