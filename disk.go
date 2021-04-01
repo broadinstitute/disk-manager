@@ -41,7 +41,7 @@ func newDiskManager(args *args) (*diskManager, error) {
 }
 
 /* Add configured snapshot policies to all disks with the configured annotation */
-func (m diskManager) addPoliciesToDisks() error {
+func (m *diskManager) addPoliciesToDisks() error {
 	logs.Info.Println("Searching for persistent disks...")
 	disks, err := m.getDisks()
 	if err != nil {
@@ -65,7 +65,7 @@ func (m diskManager) addPoliciesToDisks() error {
 }
 
 /* Search K8s for PersistentVolumeClaims with the snapshot policy annotation */
-func (m diskManager) getDisks() ([]diskInfo, error) {
+func (m *diskManager) getDisks() ([]diskInfo, error) {
 	disks := make([]diskInfo, 0)
 
 	// get persistent volume claims
@@ -94,7 +94,7 @@ func (m diskManager) getDisks() ([]diskInfo, error) {
 }
 
 /* Add the configured resource policy to the target disk */
-func (m diskManager) addPolicy(info diskInfo) error {
+func (m *diskManager) addPolicy(info diskInfo) error {
 	// TODO only perform this api call if policyName is different
 	policy, err := m.getPolicy(info.policy)
 	if err != nil {
@@ -137,7 +137,7 @@ func (m diskManager) addPolicy(info diskInfo) error {
 /* Retrieve a regional or zonal disk object via the GCP API.
    Returns the disk, a boolean that is true if the disk is regional, and an error
 */
-func (m diskManager) findDisk(name string) (*compute.Disk, bool, error) {
+func (m *diskManager) findDisk(name string) (*compute.Disk, bool, error) {
 	disk, err1 := m.getZonalDisk(name)
 	if err1 == nil {
 		logs.Info.Printf("Found disk %s in zone %s\n", name, m.config.Zone)
@@ -157,22 +157,22 @@ func (m diskManager) findDisk(name string) (*compute.Disk, bool, error) {
 }
 
 /* Retrieve a resource policy object via the GCP API */
-func (m diskManager) getPolicy(name string) (*compute.ResourcePolicy, error) {
+func (m *diskManager) getPolicy(name string) (*compute.ResourcePolicy, error) {
 	return m.gcp.ResourcePolicies.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
 /* Retrieve a zonal disk object via the GCP API */
-func (m diskManager) getZonalDisk(name string) (*compute.Disk, error) {
+func (m *diskManager) getZonalDisk(name string) (*compute.Disk, error) {
 	return m.gcp.Disks.Get(m.config.GoogleProject, m.config.Zone, name).Do()
 }
 
 /* Retrieve a regional disk object via the GCP API */
-func (m diskManager) getRegionalDisk(name string) (*compute.Disk, error) {
+func (m *diskManager) getRegionalDisk(name string) (*compute.Disk, error) {
 	return m.gcp.RegionDisks.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
 /* Attach a policy to a zonal disk object via the GCP API */
-func (m diskManager) addPolicyToZonalDisk(diskName string, policy *compute.ResourcePolicy) error {
+func (m *diskManager) addPolicyToZonalDisk(diskName string, policy *compute.ResourcePolicy) error {
 	addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
@@ -181,7 +181,7 @@ func (m diskManager) addPolicyToZonalDisk(diskName string, policy *compute.Resou
 }
 
 /* Attach a policy to a regional disk object via the GCP API */
-func (m diskManager) addPolicyToRegionalDisk(diskName string, policy *compute.ResourcePolicy) error {
+func (m *diskManager) addPolicyToRegionalDisk(diskName string, policy *compute.ResourcePolicy) error {
 	addPolicyRequest := &compute.RegionDisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
