@@ -11,9 +11,9 @@ import (
 )
 
 type diskManager struct {
-	config *config.Config     // DiskManager config
-	gcp *compute.Service      // GCP Compute API client
-	k8s kubernetes.Interface  // K8s API client
+	config *config.Config       // DiskManager config
+	gcp    *compute.Service     // GCP Compute API client
+	k8s    kubernetes.Interface // K8s API client
 }
 
 type diskInfo struct {
@@ -151,7 +151,7 @@ func (m diskManager) findDisk(name string) (*compute.Disk, bool, error) {
 	}
 
 	logs.Error.Printf("Could not find disk %s in zone %s: %v\n", name, m.config.Zone, err1)
-	logs.Error.Printf("Could not find disk %s in region %s: %v\n", name,m.config.Region, err2)
+	logs.Error.Printf("Could not find disk %s in region %s: %v\n", name, m.config.Region, err2)
 
 	return nil, false, fmt.Errorf("Could not find disk %s in configured region or zone\n", name)
 }
