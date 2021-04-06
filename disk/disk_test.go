@@ -211,6 +211,7 @@ func fakeGetZonalDisk(cfg *config.Config, name string, policyLinks []string, cal
 	disk := &compute.Disk{
 		Name:             name,
 		ResourcePolicies: policyLinks,
+		Zone:             cfg.Zone,
 	}
 	url := fmt.Sprintf("%s/projects/%s/zones/%s/disks/%s", gcpComputeURL, cfg.GoogleProject, cfg.Zone, disk.Name)
 
@@ -232,6 +233,7 @@ func fakeGetRegionalDisk(cfg *config.Config, name string, policyLinks []string, 
 	disk := &compute.Disk{
 		Name:             name,
 		ResourcePolicies: policyLinks,
+		Region:           cfg.Region,
 	}
 	url := fmt.Sprintf("%s/projects/%s/regions/%s/disks/%s", gcpComputeURL, cfg.GoogleProject, cfg.Region, disk.Name)
 

@@ -100,7 +100,8 @@ func (m *DiskManager) addPolicy(info diskInfo) error {
 		return fmt.Errorf("Error retrieving snapshot policy %s for disk %s: %v\n", info.policy, info.name, err)
 	}
 
-	disk, regional, err := m.findDisk(info.name)
+	disk, err := m.findDisk(info.name)
+
 	if err != nil {
 		return err
 	}
@@ -120,10 +121,11 @@ func (m *DiskManager) addPolicy(info diskInfo) error {
 
 	// Attach policy
 	err = nil
-	if regional {
-		err = m.addPolicyToRegionalDisk(info.name, policy)
-	} else {
+
+	if disk.Zone != "" { // zonal disk
 		err = m.addPolicyToZonalDisk(info.name, policy)
+	} else {
+		err = m.addPolicyToRegionalDisk(info.name, policy)
 	}
 	if err != nil {
 		return fmt.Errorf("Error adding snapshot policy %s to disk %s: %v\n", info.policy, info.name, err)
@@ -134,25 +136,26 @@ func (m *DiskManager) addPolicy(info diskInfo) error {
 }
 
 /* Retrieve a regional or zonal disk object via the GCP API.
-   Returns the disk, a boolean that is true if the disk is regional, and an error
+   Returns the disk, and an error. Callers can determine whether the disk is regional or zonal by
+   checking the Zone attribute (empty for regional disk) or Region attribute (empty for zonal disk).
 */
-func (m *DiskManager) findDisk(name string) (*compute.Disk, bool, error) {
+func (m *DiskManager) findDisk(name string) (*compute.Disk, error) {
 	disk, err1 := m.getZonalDisk(name)
 	if err1 == nil {
 		logs.Info.Printf("Found disk %s in zone %s\n", name, m.config.Zone)
-		return disk, false, nil
+		return disk, nil
 	}
 
 	disk, err2 := m.getRegionalDisk(name)
 	if err2 == nil {
 		logs.Info.Printf("Found disk %s in region %s", name, m.config.Region)
-		return disk, true, nil
+		return disk, nil
 	}
 
 	logs.Error.Printf("Could not find disk %s in zone %s: %v\n", name, m.config.Zone, err1)
 	logs.Error.Printf("Could not find disk %s in region %s: %v\n", name, m.config.Region, err2)
 
-	return nil, false, fmt.Errorf("Could not find disk %s in configured region or zone\n", name)
+	return nil, fmt.Errorf("Could not find disk %s in configured region or zone\n", name)
 }
 
 /* Retrieve a resource policy object via the GCP API */
