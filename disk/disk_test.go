@@ -1,4 +1,4 @@
-package main
+package disk
 
 import (
 	"context"
@@ -38,7 +38,7 @@ type gcpRequest struct {
 	callCount int
 }
 
-func TestAddPoliciesToDisks(t *testing.T) {
+func TestRun(t *testing.T) {
 	cfg := defaultConfig()
 
 	var tests = []struct {
@@ -60,16 +60,16 @@ func TestAddPoliciesToDisks(t *testing.T) {
 				fakePV("pv-3", "disk-3"),
 			},
 			gcpRequests: []gcpRequest{
-				fakePolicy(cfg, "policy-a", "https://policy-a", 2), // called for disk 1 and 3
-				fakePolicy(cfg, "policy-z", "https://policy-z", 1), // called for disk 2
+				fakeGetPolicy(cfg, "policy-a", "https://policy-a", 2), // called for disk 1 and 3
+				fakeGetPolicy(cfg, "policy-z", "https://policy-z", 1), // called for disk 2
 
-				fakeZonalDisk(cfg, "disk-1", []string{}, 1),
+				fakeGetZonalDisk(cfg, "disk-1", []string{}, 1),
 				fakeAttachPolicyZonalDisk(cfg, "disk-1", "https://policy-a", 1),
 
 				fakeGetRegionalDisk(cfg, "disk-2", []string{}, 1),
 				fakeAttachPolicyRegionalDisk(cfg, "disk-2", "https://policy-z", 1),
 
-				fakeZonalDisk(cfg, "disk-3", []string{"https://policy-a"}, 1),
+				fakeGetZonalDisk(cfg, "disk-3", []string{"https://policy-a"}, 1),
 				// no attach call -- policy is already attached ^
 			},
 		},
@@ -84,10 +84,10 @@ func TestAddPoliciesToDisks(t *testing.T) {
 				return
 			}
 			registerResponders(test.gcpRequests)
-			m := diskManager{config: cfg, gcp: gcp, k8s: k8s}
+			m := DiskManager{config: cfg, gcp: gcp, k8s: k8s}
 
 			// test
-			err = m.addPoliciesToDisks()
+			err = m.Run()
 			if err != nil {
 				t.Errorf("Unexpected error: %s", err)
 				return
@@ -144,8 +144,8 @@ func TestGetDisks(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
 			k8s := k8sfake.NewSimpleClientset(test.k8sObjects...)
-			m := diskManager{config: cfg, gcp: nil, k8s: k8s}
-			actual, err := m.getDisks()
+			m := DiskManager{config: cfg, gcp: nil, k8s: k8s}
+			actual, err := m.searchForDisks()
 			if err != nil {
 				t.Errorf("Unexpected error: %s", err)
 				return
@@ -177,8 +177,27 @@ func fakeGcp() (*compute.Service, error) {
 	return compute.NewService(context.Background(), option.WithoutAuthentication(), option.WithHTTPClient(client))
 }
 
+/* Configure httpmock to respond to a pre-defined set of requests */
+func registerResponders(requests []gcpRequest) {
+	for _, request := range requests {
+		httpmock.RegisterResponder(request.method, request.url, request.responder)
+	}
+}
+
+/* Verify all expected httpmock requests were made */
+func verifyCallCounts(requests []gcpRequest) error {
+	counts := httpmock.GetCallCountInfo()
+	for _, request := range requests {
+		key := fmt.Sprintf("%s %s", request.method, request.url)
+		if counts[key] != request.callCount {
+			return fmt.Errorf("%s: %d calls expected, %d received", key, request.callCount, counts[key])
+		}
+	}
+	return nil
+}
+
 /* Helper functions for generating fake GCP API responses */
-func fakePolicy(cfg *config.Config, name string, selfLink string, callCount int) gcpRequest {
+func fakeGetPolicy(cfg *config.Config, name string, selfLink string, callCount int) gcpRequest {
 	policy := &compute.ResourcePolicy{
 		Name:     name,
 		SelfLink: selfLink,
@@ -188,7 +207,7 @@ func fakePolicy(cfg *config.Config, name string, selfLink string, callCount int)
 	return fakeGetRequest(url, 200, policy, callCount)
 }
 
-func fakeZonalDisk(cfg *config.Config, name string, policyLinks []string, callCount int) gcpRequest {
+func fakeGetZonalDisk(cfg *config.Config, name string, policyLinks []string, callCount int) gcpRequest {
 	disk := &compute.Disk{
 		Name:             name,
 		ResourcePolicies: policyLinks,
@@ -238,14 +257,14 @@ func fakeGetRequest(url string, status int, responseBody interface{}, callCount 
 /* Prepare a fake post request with a responder that validates the request body matches the expectedRequestBody parameter */
 func fakePostRequest(url string, expectedRequestBody interface{}, status int, responseBody interface{}, callCount int) gcpRequest {
 	responder := func(req *http.Request) (*http.Response, error) {
-		// We need to compare the _expected_ request body with the  _actual_ request body,
+		// We need to compare the _expected_ request body with the _actual_ request body,
 		// to make sure we're sending the right API calls to GCP.
 		//
 		// Since the _actual_ request body is passed to us as a JSON string, but callers of this method
 		// should pass in the _expected_ request body as a GCP client struct like
 		// `compute.RegionDisksAddResourcePoliciesRequest`, we convert both to map[string]interface{} and compare
 		// then with cmp.diff(). To do this, we marshal the expected struct to JSON and then unmarshal it back to
-		// map[string]inteface{}.
+		// map[string]interface{}.
 		//
 		// A Go expert might be able to do something fancy with reflection, in the mean time this gets the job done :)
 		var expected, actual map[string]interface{}
@@ -274,25 +293,6 @@ func fakePostRequest(url string, expectedRequestBody interface{}, status int, re
 	}
 
 	return gcpRequest{"POST", url, responder, callCount}
-}
-
-/* Configure httpmock to respond to a pre-defined set of requests */
-func registerResponders(requests []gcpRequest) {
-	for _, request := range requests {
-		httpmock.RegisterResponder(request.method, request.url, request.responder)
-	}
-}
-
-/* Verify all expected requests were made */
-func verifyCallCounts(requests []gcpRequest) error {
-	counts := httpmock.GetCallCountInfo()
-	for _, request := range requests {
-		key := fmt.Sprintf("%s %s", request.method, request.url)
-		if counts[key] != request.callCount {
-			return fmt.Errorf("%s: %d calls expected, %d received", key, request.callCount, counts[key])
-		}
-	}
-	return nil
 }
 
 /* Helper functions for generating fake K8s API objects */

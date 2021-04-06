@@ -31,7 +31,7 @@ func (c *Clients) GetK8s() *kubernetes.Clientset {
 
 // Build creates the GCP and k8s clients used by this tool
 // and returns both packaged in a single struct
-func Build(local bool, kubeconfig *string) (*Clients, error) {
+func Build(local bool, kubeconfig string) (*Clients, error) {
 	conf, err := buildKubeConfig(local, kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("Error building kube client: %v", err)
@@ -51,9 +51,9 @@ func Build(local bool, kubeconfig *string) (*Clients, error) {
 	}, nil
 }
 
-func buildKubeConfig(local bool, kubeconfig *string) (*restclient.Config, error) {
+func buildKubeConfig(local bool, kubeconfig string) (*restclient.Config, error) {
 	if local {
-		config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+		config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {
 			return nil, fmt.Errorf("Error building local k8s config: %v", err)
 		}

@@ -1,4 +1,4 @@
-package main
+package disk
 
 import (
 	"fmt"
@@ -10,8 +10,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type diskManager struct {
-	config *config.Config       // DiskManager config
+type DiskManager struct {
+	config *config.Config        // DiskManager config
 	gcp    *compute.Service     // GCP Compute API client
 	k8s    kubernetes.Interface // K8s API client
 }
@@ -22,51 +22,31 @@ type diskInfo struct {
 }
 
 /* Construct a new DiskManager */
-func newDiskManager(args *args) (*diskManager, error) {
-	cfg, err := config.Read(*args.configFile)
-	if err != nil {
-		return nil, fmt.Errorf("Error building config: %v\n", err)
-	}
-
-	logs.Info.Printf("Building clients...")
-	clients, err := client.Build(args.local, args.kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("Error building clients: %v, exiting\n", err)
-	}
-
+func NewDiskManager(cfg *config.Config, clients *client.Clients) (*DiskManager, error) {
 	k8s := clients.GetK8s()
 	gcp := clients.GetGCP()
 
-	return &diskManager{cfg, gcp, k8s}, nil
+	return &DiskManager{cfg, gcp, k8s}, nil
 }
 
-/* Add configured snapshot policies to all disks with the configured annotation */
-func (m *diskManager) addPoliciesToDisks() error {
-	logs.Info.Println("Searching for persistent disks...")
-	disks, err := m.getDisks()
+/*
+ * Main method for disk manager.
+ * Add snapshot policies to all persistent disks with the configured annotation.
+ */
+func (m *DiskManager) Run() error {
+	disks, err := m.searchForDisks()
 	if err != nil {
 		return fmt.Errorf("Error retrieving persistent disks: %v\n", err)
 	}
 
-	errs := 0
-	for _, disk := range disks {
-		if err := m.addPolicy(disk); err != nil {
-			logs.Error.Printf("Error adding policy %s to disk %s: %v\n", disk.policy, disk.name, err)
-			errs++
-		}
-	}
-
-	if errs > 0 {
-		return fmt.Errorf("Encountered %d error(s) adding snapshot policies to disks\n", errs)
-	}
-
-	logs.Info.Println("Finished updating snapshot policies")
-	return nil
+	return m.addPoliciesToDisks(disks)
 }
 
 /* Search K8s for PersistentVolumeClaims with the snapshot policy annotation */
-func (m *diskManager) getDisks() ([]diskInfo, error) {
+func (m *DiskManager) searchForDisks() ([]diskInfo, error) {
 	disks := make([]diskInfo, 0)
+
+	logs.Info.Println("Searching GKE for persistent disks...")
 
 	// get persistent volume claims
 	pvcs, err := m.k8s.CoreV1().PersistentVolumeClaims("").List(metav1.ListOptions{})
@@ -93,8 +73,27 @@ func (m *diskManager) getDisks() ([]diskInfo, error) {
 	return disks, nil
 }
 
+/* Add snapshot policies to disks */
+func (m *DiskManager) addPoliciesToDisks(disks []diskInfo) error {
+	errs := 0
+	for _, disk := range disks {
+		if err := m.addPolicy(disk); err != nil {
+			logs.Error.Printf("Error adding policy %s to disk %s: %v\n", disk.policy, disk.name, err)
+			errs++
+		}
+	}
+
+	if errs > 0 {
+		return fmt.Errorf("Encountered %d error(s) adding snapshot policies to disks\n", errs)
+	}
+
+	logs.Info.Println("Finished updating snapshot policies")
+
+	return nil
+}
+
 /* Add the configured resource policy to the target disk */
-func (m *diskManager) addPolicy(info diskInfo) error {
+func (m *DiskManager) addPolicy(info diskInfo) error {
 	// TODO only perform this api call if policyName is different
 	policy, err := m.getPolicy(info.policy)
 	if err != nil {
@@ -137,7 +136,7 @@ func (m *diskManager) addPolicy(info diskInfo) error {
 /* Retrieve a regional or zonal disk object via the GCP API.
    Returns the disk, a boolean that is true if the disk is regional, and an error
 */
-func (m *diskManager) findDisk(name string) (*compute.Disk, bool, error) {
+func (m *DiskManager) findDisk(name string) (*compute.Disk, bool, error) {
 	disk, err1 := m.getZonalDisk(name)
 	if err1 == nil {
 		logs.Info.Printf("Found disk %s in zone %s\n", name, m.config.Zone)
@@ -157,22 +156,22 @@ func (m *diskManager) findDisk(name string) (*compute.Disk, bool, error) {
 }
 
 /* Retrieve a resource policy object via the GCP API */
-func (m *diskManager) getPolicy(name string) (*compute.ResourcePolicy, error) {
+func (m *DiskManager) getPolicy(name string) (*compute.ResourcePolicy, error) {
 	return m.gcp.ResourcePolicies.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
 /* Retrieve a zonal disk object via the GCP API */
-func (m *diskManager) getZonalDisk(name string) (*compute.Disk, error) {
+func (m *DiskManager) getZonalDisk(name string) (*compute.Disk, error) {
 	return m.gcp.Disks.Get(m.config.GoogleProject, m.config.Zone, name).Do()
 }
 
 /* Retrieve a regional disk object via the GCP API */
-func (m *diskManager) getRegionalDisk(name string) (*compute.Disk, error) {
+func (m *DiskManager) getRegionalDisk(name string) (*compute.Disk, error) {
 	return m.gcp.RegionDisks.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
 /* Attach a policy to a zonal disk object via the GCP API */
-func (m *diskManager) addPolicyToZonalDisk(diskName string, policy *compute.ResourcePolicy) error {
+func (m *DiskManager) addPolicyToZonalDisk(diskName string, policy *compute.ResourcePolicy) error {
 	addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
@@ -181,7 +180,7 @@ func (m *diskManager) addPolicyToZonalDisk(diskName string, policy *compute.Reso
 }
 
 /* Attach a policy to a regional disk object via the GCP API */
-func (m *diskManager) addPolicyToRegionalDisk(diskName string, policy *compute.ResourcePolicy) error {
+func (m *DiskManager) addPolicyToRegionalDisk(diskName string, policy *compute.ResourcePolicy) error {
 	addPolicyRequest := &compute.RegionDisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}

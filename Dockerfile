@@ -7,7 +7,7 @@ ENV CGO_ENABLED=0
 ENV GO111MODULE=on
 ENV GOBIN=/bin
 COPY . .
-RUN go build -o /bin/disk-manager .
+RUN go test ./... && go build -o /bin/disk-manager .
 
 FROM alpine:${ALPINE_VERSION} as runtime
 COPY --from=build /bin/disk-manager /bin/disk-manager
