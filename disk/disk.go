@@ -11,7 +11,7 @@ import (
 )
 
 type DiskManager struct {
-	config *config.Config        // DiskManager config
+	config *config.Config       // DiskManager config
 	gcp    *compute.Service     // GCP Compute API client
 	k8s    kubernetes.Interface // K8s API client
 }
