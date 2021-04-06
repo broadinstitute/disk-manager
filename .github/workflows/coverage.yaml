@@ -25,4 +25,4 @@ jobs:
       - name: Send coverage
         env:
           COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: $GOBIN/goveralls -coverprofile=covprofile -service=github
+        run: /home/runner/go/bin/goveralls -coverprofile=covprofile -service=github
