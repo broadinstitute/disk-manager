@@ -49,6 +49,16 @@ When running the docker image locally the `-local` runtime flag must be used. Th
 using your local `.kube/config` otherwise in cluster authentication will be used. Your local `.kubconfig` and a GCP credential must be mounted to the
 container when running locally.
 
+Unit tests can be run with `go test`:
+
+```
+    # Run tests w/ coverage stats
+    go test -coverprofile=coverage.out
+
+    # View line-by-line coverage report in browser
+    go tool cover -html=coverage.out
+```
+
 ### Runtime flags
 
 ```
