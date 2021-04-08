@@ -8,6 +8,8 @@ import (
 	"google.golang.org/api/compute/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	neturl "net/url"
+	"strings"
 )
 
 type DiskManager struct {
@@ -122,10 +124,12 @@ func (m *DiskManager) addPolicy(info diskInfo) error {
 	// Attach policy
 	err = nil
 
-	if disk.Zone != "" { // zonal disk
-		err = m.addPolicyToZonalDisk(info.name, policy)
+	if isRegional(disk) {
+		logs.Info.Printf("Disk %s appears to be regional: %s", disk.Name, disk.Region)
+		err = m.addPolicyToRegionalDisk(disk, policy)
 	} else {
-		err = m.addPolicyToRegionalDisk(info.name, policy)
+		logs.Info.Printf("Disk %s appears to be zonal: %s", disk.Name, disk.Zone)
+		err = m.addPolicyToZonalDisk(disk, policy)
 	}
 	if err != nil {
 		return fmt.Errorf("Error adding snapshot policy %s to disk %s: %v\n", info.policy, info.name, err)
@@ -140,22 +144,23 @@ func (m *DiskManager) addPolicy(info diskInfo) error {
    checking the Zone attribute (empty for regional disk) or Region attribute (empty for zonal disk).
 */
 func (m *DiskManager) findDisk(name string) (*compute.Disk, error) {
-	disk, err1 := m.getZonalDisk(name)
-	if err1 == nil {
-		logs.Info.Printf("Found disk %s in zone %s\n", name, m.config.Zone)
-		return disk, nil
+	aggregatedList, err := m.listDisksWithName(name)
+	if err != nil {
+		return nil, err
 	}
 
-	disk, err2 := m.getRegionalDisk(name)
-	if err2 == nil {
-		logs.Info.Printf("Found disk %s in region %s", name, m.config.Region)
-		return disk, nil
+	disks := make([]*compute.Disk, 0)
+	for _, list := range aggregatedList.Items {
+		if len(list.Disks) > 0 {
+			disks = append(disks, list.Disks...)
+		}
 	}
 
-	logs.Error.Printf("Could not find disk %s in zone %s: %v\n", name, m.config.Zone, err1)
-	logs.Error.Printf("Could not find disk %s in region %s: %v\n", name, m.config.Region, err2)
+	if len(disks) != 1 {
+		return nil, fmt.Errorf("Expected exactly one disk matching name %s, got %d:\n%v\n", name, len(disks), disks)
+	}
 
-	return nil, fmt.Errorf("Could not find disk %s in configured region or zone\n", name)
+	return disks[0], nil
 }
 
 /* Retrieve a resource policy object via the GCP API */
@@ -163,30 +168,66 @@ func (m *DiskManager) getPolicy(name string) (*compute.ResourcePolicy, error) {
 	return m.gcp.ResourcePolicies.Get(m.config.GoogleProject, m.config.Region, name).Do()
 }
 
-/* Retrieve a zonal disk object via the GCP API */
-func (m *DiskManager) getZonalDisk(name string) (*compute.Disk, error) {
-	return m.gcp.Disks.Get(m.config.GoogleProject, m.config.Zone, name).Do()
-}
-
-/* Retrieve a regional disk object via the GCP API */
-func (m *DiskManager) getRegionalDisk(name string) (*compute.Disk, error) {
-	return m.gcp.RegionDisks.Get(m.config.GoogleProject, m.config.Region, name).Do()
+/* Lists disks with the given name via the GCP API */
+func (m *DiskManager) listDisksWithName(name string) (*compute.DiskAggregatedList, error) {
+	filter := fmt.Sprintf("name = %s", name)
+	return m.gcp.Disks.AggregatedList(m.config.GoogleProject).Filter(filter).Do()
 }
 
 /* Attach a policy to a zonal disk object via the GCP API */
-func (m *DiskManager) addPolicyToZonalDisk(diskName string, policy *compute.ResourcePolicy) error {
+func (m *DiskManager) addPolicyToZonalDisk(disk *compute.Disk, policy *compute.ResourcePolicy) error {
 	addPolicyRequest := &compute.DisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
-	_, err := m.gcp.Disks.AddResourcePolicies(m.config.GoogleProject, m.config.Zone, diskName, addPolicyRequest).Do()
+	zone, err := zoneName(disk)
+	if err != nil {
+		return err
+	}
+	_, err = m.gcp.Disks.AddResourcePolicies(m.config.GoogleProject, zone, disk.Name, addPolicyRequest).Do()
 	return err
 }
 
 /* Attach a policy to a regional disk object via the GCP API */
-func (m *DiskManager) addPolicyToRegionalDisk(diskName string, policy *compute.ResourcePolicy) error {
+func (m *DiskManager) addPolicyToRegionalDisk(disk *compute.Disk, policy *compute.ResourcePolicy) error {
 	addPolicyRequest := &compute.RegionDisksAddResourcePoliciesRequest{
 		ResourcePolicies: []string{policy.SelfLink},
 	}
-	_, err := m.gcp.RegionDisks.AddResourcePolicies(m.config.GoogleProject, m.config.Region, diskName, addPolicyRequest).Do()
+	region, err := regionName(disk)
+	if err != nil {
+		return err
+	}
+	_, err = m.gcp.RegionDisks.AddResourcePolicies(m.config.GoogleProject, region, disk.Name, addPolicyRequest).Do()
 	return err
+}
+
+func isRegional(disk *compute.Disk) bool {
+	return disk.Region != ""
+}
+
+func zoneName(disk *compute.Disk) (string, error) {
+	return lastComponentFromURL(disk.Zone)
+}
+
+func regionName(disk *compute.Disk) (string, error) {
+	return lastComponentFromURL(disk.Region)
+}
+
+/* Given a URL string, return the last component of the path. Eg.
+ * "https://foo.com/p1/p2/p3?n=2" => "p3"
+ */
+func lastComponentFromURL(url string) (string, error) {
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		return "", err
+	}
+
+	tokens := strings.Split(parsed.Path, "/")
+	if len(tokens) > 0 {
+		last := tokens[len(tokens) - 1]
+		if last != "" {
+			return last, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to extract last component from url path: %s", parsed.Path)
 }
