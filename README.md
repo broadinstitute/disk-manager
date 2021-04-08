@@ -82,5 +82,4 @@ The config file expects the following format
 targetAnnotation: terra.bio/snapshot-policy # The annotation key disk-manager uses to determine which persistent volume claims to operate on
 googleProject: GCP_PROJECT_ID
 region: GCP_REGION
-zone: GCP_ZONE
 ```
