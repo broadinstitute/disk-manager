@@ -11,7 +11,6 @@ import (
 type Config struct {
 	TargetAnnotation string `yaml:"targetAnnotation"`
 	GoogleProject    string `yaml:"googleProject"`
-	Zone             string `yaml:"zone"`
 	Region           string `yaml:"region"`
 }
 

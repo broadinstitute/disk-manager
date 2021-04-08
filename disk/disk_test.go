@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/broadinstitute/disk-manager/config"
+	"github.com/broadinstitute/disk-manager/logs"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/jarcoal/httpmock"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"net/http"
+	neturl "net/url"
 	"testing"
 )
 
@@ -60,17 +62,37 @@ func TestRun(t *testing.T) {
 				fakePV("pv-3", "disk-3"),
 			},
 			gcpRequests: []gcpRequest{
-				fakeGetPolicy(cfg, "policy-a", "https://policy-a", 2), // called for disk 1 and 3
-				fakeGetPolicy(cfg, "policy-z", "https://policy-z", 1), // called for disk 2
+				fakeGetPolicy(cfg, "policy-a", 2), // called for disk 1 and 3
+				fakeGetPolicy(cfg, "policy-z", 1), // called for disk 2
 
-				fakeGetZonalDisk(cfg, "disk-1", []string{}, 1),
-				fakeAttachPolicyZonalDisk(cfg, "disk-1", "https://policy-a", 1),
+				fakeListZonalDisk(cfg, "disk-1", "us-central1-a", []string{}, 1),
+				fakeAttachPolicyZonalDisk(cfg, "disk-1", "us-central1-a", "policy-a", 1),
 
-				fakeGetRegionalDisk(cfg, "disk-2", []string{}, 1),
-				fakeAttachPolicyRegionalDisk(cfg, "disk-2", "https://policy-z", 1),
+				fakeListRegionalDisk(cfg, "disk-2", "us-central1", []string{}, 1),
+				fakeAttachPolicyRegionalDisk(cfg, "disk-2", "us-central1", "policy-z", 1),
 
-				fakeGetZonalDisk(cfg, "disk-3", []string{"https://policy-a"}, 1),
+				fakeListZonalDisk(cfg, "disk-3", "us-central1-a", []string{"policy-a"}, 1),
 				// no attach call -- policy is already attached ^
+			},
+		},
+		{
+			description: "2 zonal, in different zones",
+			k8sObjects: []runtime.Object{
+				fakePVC("pvc-1", "pv-1", map[string]string{cfg.TargetAnnotation: "policy-a"}),
+				fakePV("pv-1", "disk-1"),
+
+				fakePVC("pvc-2", "pv-2", map[string]string{cfg.TargetAnnotation: "policy-z"}),
+				fakePV("pv-2", "disk-2"),
+			},
+			gcpRequests: []gcpRequest{
+				fakeGetPolicy(cfg, "policy-a", 1), // called for disk 1
+				fakeGetPolicy(cfg, "policy-z", 1), // called for disk 2
+
+				fakeListZonalDisk(cfg, "disk-1", "us-central1-a", []string{}, 1),
+				fakeAttachPolicyZonalDisk(cfg, "disk-1", "us-central1-a", "policy-a", 1),
+
+				fakeListZonalDisk(cfg, "disk-2", "us-central1-f", []string{}, 1),
+				fakeAttachPolicyZonalDisk(cfg, "disk-2", "us-central1-f", "policy-z", 1),
 			},
 		},
 	}
@@ -158,12 +180,45 @@ func TestGetDisks(t *testing.T) {
 	}
 }
 
+func TestLastComponentOfURL(t *testing.T) {
+	var tests = []struct {
+		description string
+		url         string
+		expected    string
+		expectError bool
+	}{
+		{description: "no path", url: "http://foo.com", expected: "", expectError: true},
+		{description: "simple", url: "http://foo.com/path", expected: "path", expectError: false},
+		{description: "multiple components", url: "http://foo.com/a/b/c", expected: "c", expectError: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			actual, err := lastComponentFromURL(test.url)
+			if test.expectError {
+				if err == nil {
+					t.Errorf("Expected error for %q, but err was nil", test.url)
+					return
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected errror for %q: %v", test.url, err)
+				}
+			}
+
+			if diff := cmp.Diff(actual, test.expected); diff != "" {
+				t.Errorf("%T differ (-got, +want): %s", test.expected, diff)
+				return
+			}
+		})
+	}
+}
+
 /* Default config for all tests */
 func defaultConfig() *config.Config {
 	return &config.Config{
 		TargetAnnotation: "bio.terra.testing/snapshot-policy",
 		GoogleProject:    "fake-project",
-		Zone:             "us-central1-a",
 		Region:           "us-central1",
 	}
 }
@@ -197,54 +252,117 @@ func verifyCallCounts(requests []gcpRequest) error {
 }
 
 /* Helper functions for generating fake GCP API responses */
-func fakeGetPolicy(cfg *config.Config, name string, selfLink string, callCount int) gcpRequest {
+func fakeGetPolicy(cfg *config.Config, name string, callCount int) gcpRequest {
+	url := fakePolicyLink(cfg.GoogleProject, cfg.Region, name)
+
 	policy := &compute.ResourcePolicy{
 		Name:     name,
-		SelfLink: selfLink,
+		SelfLink: url,
 	}
-	url := fmt.Sprintf("%s/projects/%s/regions/%s/resourcePolicies/%s", gcpComputeURL, cfg.GoogleProject, cfg.Region, policy.Name)
 
 	return fakeGetRequest(url, 200, policy, callCount)
 }
 
-func fakeGetZonalDisk(cfg *config.Config, name string, policyLinks []string, callCount int) gcpRequest {
-	disk := &compute.Disk{
-		Name:             name,
-		ResourcePolicies: policyLinks,
-		Zone:             cfg.Zone,
-	}
-	url := fmt.Sprintf("%s/projects/%s/zones/%s/disks/%s", gcpComputeURL, cfg.GoogleProject, cfg.Zone, disk.Name)
-
-	return fakeGetRequest(url, 200, disk, callCount)
+/* Fake an aggregatedList call for a zonal disk
+ * https://cloud.google.com/compute/docs/reference/rest/v1/disks/aggregatedList
+ */
+func fakeListZonalDisk(cfg *config.Config, name string, zone string, policies []string, callCount int) gcpRequest {
+	scope := fmt.Sprintf("zones/%s", zone)
+	disk := fakeZonalDisk(cfg, name, zone, policies)
+	return fakeDiskAggregatedListRequest(cfg, scope, disk, callCount)
 }
 
-func fakeAttachPolicyZonalDisk(cfg *config.Config, diskName string, policyLink string, callCount int) gcpRequest {
-	url := fmt.Sprintf("%s/projects/%s/zones/%s/disks/%s/addResourcePolicies", gcpComputeURL, cfg.GoogleProject, cfg.Zone, diskName)
+/* Fake an aggregatedList call for a regional disk
+ * https://cloud.google.com/compute/docs/reference/rest/v1/disks/aggregatedList
+ */
+func fakeListRegionalDisk(cfg *config.Config, name string, region string, policies []string, callCount int) gcpRequest {
+	scope := fmt.Sprintf("regions/%s", region)
+	disk := fakeRegionalDisk(cfg, name, region, policies)
+	return fakeDiskAggregatedListRequest(cfg, scope, disk, callCount)
+}
+
+func fakeDiskAggregatedListRequest(cfg *config.Config, scope string, disk *compute.Disk, callCount int) gcpRequest {
+	filter := neturl.QueryEscape(fmt.Sprintf("name = %s", disk.Name))
+
+	// Unfortunately httpmock doesn't support partial query string matches, so we have
+	// to include prettyPrint/json parameters :'(
+	query := fmt.Sprintf("alt=json&filter=%s&prettyPrint=false", filter)
+	url := fmt.Sprintf("%s/projects/%s/aggregated/disks?%s", gcpComputeURL, cfg.GoogleProject, query)
+
+	logs.Info.Printf("URL: %s", url)
+	response := &compute.DiskAggregatedList{
+		Items: map[string]compute.DisksScopedList{
+			scope: {Disks: []*compute.Disk{disk}},
+		},
+	}
+
+	return fakeGetRequest(url, 200, response, callCount)
+}
+
+func fakeZonalDisk(cfg *config.Config, name string, zone string, policies []string) *compute.Disk {
+	return &compute.Disk{
+		Name:             name,
+		ResourcePolicies: fakePolicyLinks(cfg.GoogleProject, cfg.Region, policies...),
+		Zone:             fakeZoneLink(cfg.GoogleProject, zone),
+	}
+}
+
+func fakeRegionalDisk(cfg *config.Config, name string, region string, policies []string) *compute.Disk {
+	return &compute.Disk{
+		Name:             name,
+		ResourcePolicies: fakePolicyLinks(cfg.GoogleProject, cfg.Region, policies...),
+		Region:           fakeRegionLink(cfg.GoogleProject, region),
+	}
+}
+
+/* Given a project name, region name, and arbitrary number of policy names,
+   return a slice of fake policy links.
+*/
+func fakePolicyLinks(project string, region string, policyNames ...string) []string {
+	links := make([]string, len(policyNames))
+	for i, policyName := range policyNames {
+		links[i] = fakePolicyLink(project, region, policyName)
+	}
+	return links
+}
+
+/* Given a project name, region name, and policy name, return a fake policy link.
+   eg. [https://www.googleapis.com/compute/v1/projects/broad-dsde-dev/regions/us-central1/resourcePolicies/my-policy]
+*/
+func fakePolicyLink(project string, region string, policyName string) string {
+	return fmt.Sprintf("%s/projects/%s/regions/%s/resourcePolicies/%s", gcpComputeURL, project, region, policyName)
+}
+
+/* Given a project and zone name, return a fake zone link.
+   eg. https://www.googleapis.com/compute/v1/projects/broad-dsde-dev/zones/us-central1-f
+*/
+func fakeZoneLink(project string, zone string) string {
+	return fmt.Sprintf("%s/projects/%s/zones/%s", gcpComputeURL, project, zone)
+}
+
+/* Given a project and region name, return a fake region link.
+   eg. https://www.googleapis.com/compute/v1/projects/broad-dsde-dev/regions/us-central1
+*/
+func fakeRegionLink(project string, region string) string {
+	return fmt.Sprintf("%s/projects/%s/regions/%s", gcpComputeURL, project, region)
+}
+
+func fakeAttachPolicyZonalDisk(cfg *config.Config, diskName string, zone string, policyName string, callCount int) gcpRequest {
+	url := fmt.Sprintf("%s/projects/%s/zones/%s/disks/%s/addResourcePolicies", gcpComputeURL, cfg.GoogleProject, zone, diskName)
 
 	expectedRequestBody := compute.DisksAddResourcePoliciesRequest{
-		ResourcePolicies: []string{policyLink},
+		ResourcePolicies: fakePolicyLinks(cfg.GoogleProject, cfg.Region, policyName),
 	}
 	responseBody := compute.DisksAddResourcePoliciesCall{}
 
 	return fakePostRequest(url, expectedRequestBody, 201, responseBody, callCount)
 }
 
-func fakeGetRegionalDisk(cfg *config.Config, name string, policyLinks []string, callCount int) gcpRequest {
-	disk := &compute.Disk{
-		Name:             name,
-		ResourcePolicies: policyLinks,
-		Region:           cfg.Region,
-	}
-	url := fmt.Sprintf("%s/projects/%s/regions/%s/disks/%s", gcpComputeURL, cfg.GoogleProject, cfg.Region, disk.Name)
-
-	return fakeGetRequest(url, 200, disk, callCount)
-}
-
-func fakeAttachPolicyRegionalDisk(cfg *config.Config, diskName string, policyLink string, callCount int) gcpRequest {
-	url := fmt.Sprintf("%s/projects/%s/regions/%s/disks/%s/addResourcePolicies", gcpComputeURL, cfg.GoogleProject, cfg.Region, diskName)
+func fakeAttachPolicyRegionalDisk(cfg *config.Config, diskName string, region string, policyName string, callCount int) gcpRequest {
+	url := fmt.Sprintf("%s/projects/%s/regions/%s/disks/%s/addResourcePolicies", gcpComputeURL, cfg.GoogleProject, region, diskName)
 
 	expectedRequestBody := compute.RegionDisksAddResourcePoliciesRequest{
-		ResourcePolicies: []string{policyLink},
+		ResourcePolicies: fakePolicyLinks(cfg.GoogleProject, cfg.Region, policyName),
 	}
 	responseBody := compute.RegionDisksAddResourcePoliciesCall{}
 
@@ -253,7 +371,7 @@ func fakeAttachPolicyRegionalDisk(cfg *config.Config, diskName string, policyLin
 
 func fakeGetRequest(url string, status int, responseBody interface{}, callCount int) gcpRequest {
 	responder := httpmock.NewJsonResponderOrPanic(status, responseBody)
-	return gcpRequest{"GET", url, responder, callCount}
+	return gcpRequest{method: "GET", url: url, responder: responder, callCount: callCount}
 }
 
 /* Prepare a fake post request with a responder that validates the request body matches the expectedRequestBody parameter */
@@ -294,7 +412,7 @@ func fakePostRequest(url string, expectedRequestBody interface{}, status int, re
 		return httpmock.NewJsonResponse(status, responseBody)
 	}
 
-	return gcpRequest{"POST", url, responder, callCount}
+	return gcpRequest{method: "POST", url: url, responder: responder, callCount: callCount}
 }
 
 /* Helper functions for generating fake K8s API objects */
