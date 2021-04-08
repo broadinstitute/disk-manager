@@ -291,7 +291,7 @@ func fakeDiskAggregatedListRequest(cfg *config.Config, scope string, disk *compu
 
 	logs.Info.Printf("URL: %s", url)
 	response := &compute.DiskAggregatedList{
-		Items:  map[string]compute.DisksScopedList{
+		Items: map[string]compute.DisksScopedList{
 			scope: {Disks: []*compute.Disk{disk}},
 		},
 	}
@@ -371,7 +371,7 @@ func fakeAttachPolicyRegionalDisk(cfg *config.Config, diskName string, region st
 
 func fakeGetRequest(url string, status int, responseBody interface{}, callCount int) gcpRequest {
 	responder := httpmock.NewJsonResponderOrPanic(status, responseBody)
-	return gcpRequest{ method: "GET", url: url, responder: responder, callCount: callCount}
+	return gcpRequest{method: "GET", url: url, responder: responder, callCount: callCount}
 }
 
 /* Prepare a fake post request with a responder that validates the request body matches the expectedRequestBody parameter */

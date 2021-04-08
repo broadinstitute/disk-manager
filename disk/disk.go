@@ -223,7 +223,7 @@ func lastComponentFromURL(url string) (string, error) {
 
 	tokens := strings.Split(parsed.Path, "/")
 	if len(tokens) > 0 {
-		last := tokens[len(tokens) - 1]
+		last := tokens[len(tokens)-1]
 		if last != "" {
 			return last, nil
 		}
